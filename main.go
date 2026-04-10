@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -63,6 +64,32 @@ type wandboxResponse struct {
 	ProgramError   string `json:"program_error"`
 	ProgramOutput  string `json:"program_output"`
 	Signal         string `json:"signal"`
+}
+
+// listLanguages returns a human-readable list of supported languages, grouping aliases per compiler.
+func listLanguages() string {
+	groups := map[string][]string{}
+	for alias, compiler := range langToCompiler {
+		groups[compiler] = append(groups[compiler], alias)
+	}
+	type entry struct {
+		compiler string
+		aliases  []string
+	}
+	entries := make([]entry, 0, len(groups))
+	for c, a := range groups {
+		sort.Strings(a)
+		entries = append(entries, entry{compiler: c, aliases: a})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].aliases[0] < entries[j].aliases[0]
+	})
+	var sb strings.Builder
+	sb.WriteString("supported languages:\n")
+	for _, e := range entries {
+		fmt.Fprintf(&sb, "- %s (%s)\n", strings.Join(e.aliases, ", "), e.compiler)
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // parseRunCommand parses content and returns lang and code if it has the form `/run <lang>\n<code>`.
@@ -172,22 +199,28 @@ func main() {
 			return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid signature"})
 		}
 
-		lang, code, ok := parseRunCommand(ev.Content)
-		if !ok {
-			return c.JSON(http.StatusBadRequest, echo.Map{"error": "not a /run command"})
-		}
+		var output string
+		if strings.TrimSpace(ev.Content) == "/run list" {
+			output = listLanguages()
+		} else {
+			lang, code, ok := parseRunCommand(ev.Content)
+			if !ok {
+				return c.JSON(http.StatusBadRequest, echo.Map{"error": "not a /run command"})
+			}
 
-		compiler, ok := langToCompiler[strings.ToLower(lang)]
-		if !ok {
-			return c.JSON(http.StatusBadRequest, echo.Map{"error": "unsupported language: " + lang})
-		}
+			compiler, ok := langToCompiler[strings.ToLower(lang)]
+			if !ok {
+				return c.JSON(http.StatusBadRequest, echo.Map{"error": "unsupported language: " + lang})
+			}
 
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
-		defer cancel()
+			ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
+			defer cancel()
 
-		output, err := runWandbox(ctx, compiler, code)
-		if err != nil {
-			return c.JSON(http.StatusBadGateway, echo.Map{"error": err.Error()})
+			out, err := runWandbox(ctx, compiler, code)
+			if err != nil {
+				return c.JSON(http.StatusBadGateway, echo.Map{"error": err.Error()})
+			}
+			output = out
 		}
 
 		reply := nostr.Event{
