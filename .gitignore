@@ -1,0 +1,10 @@
+secret.yaml
+nostr-runbot
+nostr-runbot.exe
+test.sh
+backup
+*.json
+k8s
+*.sh
+*.bat
+*.cmd
