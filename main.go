@@ -92,6 +92,24 @@ func listLanguages() string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
+// buildReplyTags builds NIP-10/NIP-28 compliant tags for a reply to ev.
+// For channel messages, the incoming event's "root" e-tag (pointing to the kind:40 channel creation
+// event) is preserved so the reply stays in the same channel.
+func buildReplyTags(ev *nostr.Event) nostr.Tags {
+	var tags nostr.Tags
+	if ev.Kind == nostr.KindChannelMessage {
+		for _, t := range ev.Tags {
+			if len(t) >= 4 && t[0] == "e" && t[3] == "root" {
+				tags = append(tags, t)
+				break
+			}
+		}
+	}
+	tags = append(tags, nostr.Tag{"e", ev.ID, "", "reply"})
+	tags = append(tags, nostr.Tag{"p", ev.PubKey})
+	return tags
+}
+
 // parseRunCommand parses content and returns lang and code if it has the form `/run <lang>\n<code>`.
 func parseRunCommand(content string) (lang, code string, ok bool) {
 	if !strings.HasPrefix(content, "/run ") {
@@ -199,6 +217,10 @@ func main() {
 			return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid signature"})
 		}
 
+		if ev.Kind != nostr.KindTextNote && ev.Kind != nostr.KindChannelMessage {
+			return c.JSON(http.StatusBadRequest, echo.Map{"error": "unsupported kind"})
+		}
+
 		var output string
 		if strings.TrimSpace(ev.Content) == "/run list" {
 			output = listLanguages()
@@ -224,13 +246,10 @@ func main() {
 		}
 
 		reply := nostr.Event{
-			Kind:      nostr.KindTextNote,
+			Kind:      ev.Kind,
 			CreatedAt: nostr.Now(),
-			Tags: nostr.Tags{
-				nostr.Tag{"e", ev.ID, "", "reply"},
-				nostr.Tag{"p", ev.PubKey},
-			},
-			Content: output,
+			Tags:      buildReplyTags(&ev),
+			Content:   output,
 		}
 		if err := reply.Sign(secretKey); err != nil {
 			return c.JSON(http.StatusInternalServerError, echo.Map{"error": err.Error()})
