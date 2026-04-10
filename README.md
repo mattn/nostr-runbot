@@ -25,6 +25,14 @@ To see the list of supported languages, post:
 /run list
 ```
 
+To re-execute a previous `/run`, reply to the bot's output with:
+
+```
+/rerun
+```
+
+The bot looks up the thread's root event (the original `/run`) from relays and re-runs it.
+
 Both text notes (kind 1) and channel messages (kind 42) are supported. Replies are returned in the same kind, and for channel messages the root `e` tag is preserved so the reply stays in the same channel.
 
 ### Supported languages
@@ -46,6 +54,7 @@ Environment variables:
 
 - `BOT_NSEC` (required): the bot's private key in `nsec` form.
 - `ADDR` (optional): listen address, default `:8080`.
+- `RELAYS` (optional): comma-separated relay URLs used by `/rerun` to fetch the original event. Defaults to a few Japanese relays plus `relay.damus.io`.
 
 ## Installation
 
