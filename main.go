@@ -63,8 +63,6 @@ type paizaDetailsResponse struct {
 	Stdout        string `json:"stdout"`
 	Stderr        string `json:"stderr"`
 	Result        string `json:"result"`
-	ExitCode      int    `json:"exit_code"`
-	BuildExitCode int    `json:"build_exit_code"`
 	Error         string `json:"error"`
 }
 
@@ -193,6 +191,7 @@ func runPaiza(ctx context.Context, language, code string) (string, error) {
 	form.Set("longpoll_timeout", "20")
 	form.Set("api_key", "guest")
 
+	log.Printf("paiza: create language=%s code_bytes=%d", language, len(code))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://api.paiza.io/runners/create", strings.NewReader(form.Encode()))
 	if err != nil {
@@ -202,17 +201,22 @@ func runPaiza(ctx context.Context, language, code string) (string, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		log.Printf("paiza: create request error: %v", err)
 		return "", err
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	log.Printf("paiza: create status=%s body=%s", resp.Status, strings.TrimSpace(string(body)))
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("paiza: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+		return "", fmt.Errorf("paiza: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
 	var cr paizaCreateResponse
-	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
+	if err := json.Unmarshal(body, &cr); err != nil {
 		return "", err
 	}
 	if cr.Error != "" {
@@ -234,12 +238,17 @@ func runPaiza(ctx context.Context, language, code string) (string, error) {
 		}
 		sresp, err := http.DefaultClient.Do(sreq)
 		if err != nil {
+			log.Printf("paiza: get_status request error: %v", err)
 			return "", err
 		}
-		var sr paizaCreateResponse
-		err = json.NewDecoder(sresp.Body).Decode(&sr)
+		sbody, err := io.ReadAll(sresp.Body)
 		sresp.Body.Close()
 		if err != nil {
+			return "", err
+		}
+		log.Printf("paiza: get_status id=%s status=%s body=%s", cr.ID, sresp.Status, strings.TrimSpace(string(sbody)))
+		var sr paizaCreateResponse
+		if err := json.Unmarshal(sbody, &sr); err != nil {
 			return "", err
 		}
 		cr.Status = sr.Status
@@ -256,12 +265,19 @@ func runPaiza(ctx context.Context, language, code string) (string, error) {
 	}
 	dresp, err := http.DefaultClient.Do(dreq)
 	if err != nil {
+		log.Printf("paiza: get_details request error: %v", err)
 		return "", err
 	}
 	defer dresp.Body.Close()
 
+	dbody, err := io.ReadAll(dresp.Body)
+	if err != nil {
+		return "", err
+	}
+	log.Printf("paiza: get_details id=%s status=%s body=%s", cr.ID, dresp.Status, strings.TrimSpace(string(dbody)))
+
 	var dr paizaDetailsResponse
-	if err := json.NewDecoder(dresp.Body).Decode(&dr); err != nil {
+	if err := json.Unmarshal(dbody, &dr); err != nil {
 		return "", err
 	}
 	if dr.Error != "" {
