@@ -22,7 +22,7 @@ import (
 
 const name = "nostr-runbot"
 
-const version = "0.0.4"
+const version = "0.0.5"
 
 var revision = "HEAD"
 
@@ -56,16 +56,16 @@ type paizaCreateResponse struct {
 }
 
 type paizaDetailsResponse struct {
-	Status       string `json:"status"`
-	BuildStdout  string `json:"build_stdout"`
-	BuildStderr  string `json:"build_stderr"`
-	BuildResult  string `json:"build_result"`
-	Stdout       string `json:"stdout"`
-	Stderr       string `json:"stderr"`
-	Result       string `json:"result"`
-	ExitCode     int    `json:"exit_code"`
-	BuildExitCode int   `json:"build_exit_code"`
-	Error        string `json:"error"`
+	Status        string `json:"status"`
+	BuildStdout   string `json:"build_stdout"`
+	BuildStderr   string `json:"build_stderr"`
+	BuildResult   string `json:"build_result"`
+	Stdout        string `json:"stdout"`
+	Stderr        string `json:"stderr"`
+	Result        string `json:"result"`
+	ExitCode      int    `json:"exit_code"`
+	BuildExitCode int    `json:"build_exit_code"`
+	Error         string `json:"error"`
 }
 
 // defaultFetchRelays is used when the RELAYS environment variable is not set.
