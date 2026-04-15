@@ -1,6 +1,6 @@
 # nostr-runbot
 
-A Nostr bot that compiles and runs code snippets via [Wandbox](https://wandbox.org/) and replies with the output.
+A Nostr bot that compiles and runs code snippets via [paiza.io](https://paiza.io/) and replies with the output.
 
 ## Usage
 
@@ -37,9 +37,9 @@ Both text notes (kind 1) and channel messages (kind 42) are supported. Replies a
 
 ### Supported languages
 
-`rb`/`ruby`, `py`/`python`, `go`, `js`/`node`, `c`, `cpp`/`c++`, `rs`/`rust`, `sh`/`bash`, `php`, `pl`/`perl`, `lua`, `swift`
+`rb`/`ruby`, `py`/`python`, `go`, `js`/`node`, `c`, `cpp`/`c++`, `rs`/`rust`, `sh`/`bash`, `php`, `pl`/`perl`, `swift`
 
-Versions are pinned; see `langToCompiler` in `main.go` for the exact Wandbox compiler names.
+See `langToCompiler` in `main.go` for the exact paiza.io language names.
 
 ## Running
 

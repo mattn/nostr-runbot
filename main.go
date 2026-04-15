@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -9,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -26,44 +26,46 @@ const version = "0.0.4"
 
 var revision = "HEAD"
 
-// langToCompiler maps the `lang` part of `/run <lang>` to a wandbox compiler name.
-// wandbox has dropped most *-head entries, so pinned stable versions are used.
-// The up-to-date list is available at https://wandbox.org/api/list.json.
+// langToCompiler maps the `lang` part of `/run <lang>` to a paiza.io language name.
+// The up-to-date list is available at https://api.paiza.io/runners/get_languages.
 var langToCompiler = map[string]string{
-	"rb":     "ruby-3.4.1",
-	"ruby":   "ruby-3.4.1",
-	"py":     "cpython-3.13.8",
-	"python": "cpython-3.13.8",
-	"go":     "go-1.23.2",
-	"js":     "nodejs-20.17.0",
-	"node":   "nodejs-20.17.0",
-	"c":      "gcc-head-c",
-	"cpp":    "gcc-head",
-	"c++":    "gcc-head",
-	"rs":     "rust-1.82.0",
-	"rust":   "rust-1.82.0",
+	"rb":     "ruby",
+	"ruby":   "ruby",
+	"py":     "python3",
+	"python": "python3",
+	"go":     "go",
+	"js":     "javascript",
+	"node":   "javascript",
+	"c":      "c",
+	"cpp":    "cpp",
+	"c++":    "cpp",
+	"rs":     "rust",
+	"rust":   "rust",
 	"sh":     "bash",
 	"bash":   "bash",
-	"php":    "php-8.3.12",
-	"pl":     "perl-5.42.0",
-	"perl":   "perl-5.42.0",
-	"lua":    "lua-5.4.7",
-	"swift":  "swift-6.0.1",
+	"php":    "php",
+	"pl":     "perl",
+	"perl":   "perl",
+	"swift":  "swift",
 }
 
-type wandboxRequest struct {
-	Code     string `json:"code"`
-	Compiler string `json:"compiler"`
-	Save     bool   `json:"save"`
+type paizaCreateResponse struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Error  string `json:"error"`
 }
 
-type wandboxResponse struct {
-	Status         string `json:"status"`
-	CompilerError  string `json:"compiler_error"`
-	CompilerOutput string `json:"compiler_output"`
-	ProgramError   string `json:"program_error"`
-	ProgramOutput  string `json:"program_output"`
-	Signal         string `json:"signal"`
+type paizaDetailsResponse struct {
+	Status       string `json:"status"`
+	BuildStdout  string `json:"build_stdout"`
+	BuildStderr  string `json:"build_stderr"`
+	BuildResult  string `json:"build_result"`
+	Stdout       string `json:"stdout"`
+	Stderr       string `json:"stderr"`
+	Result       string `json:"result"`
+	ExitCode     int    `json:"exit_code"`
+	BuildExitCode int   `json:"build_exit_code"`
+	Error        string `json:"error"`
 }
 
 // defaultFetchRelays is used when the RELAYS environment variable is not set.
@@ -182,21 +184,21 @@ func parseRunCommand(content string) (lang, code string, ok bool) {
 	return lang, code, true
 }
 
-func runWandbox(ctx context.Context, compiler, code string) (string, error) {
-	body, err := json.Marshal(wandboxRequest{
-		Code:     code,
-		Compiler: compiler,
-		Save:     false,
-	})
-	if err != nil {
-		return "", err
-	}
+func runPaiza(ctx context.Context, language, code string) (string, error) {
+	form := url.Values{}
+	form.Set("source_code", code)
+	form.Set("language", language)
+	form.Set("input", "")
+	form.Set("longpoll", "true")
+	form.Set("longpoll_timeout", "20")
+	form.Set("api_key", "guest")
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://wandbox.org/api/compile.json", bytes.NewReader(body))
+		"https://api.paiza.io/runners/create", strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -206,16 +208,68 @@ func runWandbox(ctx context.Context, compiler, code string) (string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("wandbox: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+		return "", fmt.Errorf("paiza: %s: %s", resp.Status, strings.TrimSpace(string(b)))
 	}
 
-	var wr wandboxResponse
-	if err := json.NewDecoder(resp.Body).Decode(&wr); err != nil {
+	var cr paizaCreateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
 		return "", err
+	}
+	if cr.Error != "" {
+		return "", fmt.Errorf("paiza: %s", cr.Error)
+	}
+	if cr.ID == "" {
+		return "", fmt.Errorf("paiza: empty runner id")
+	}
+
+	for cr.Status != "completed" {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		statusURL := fmt.Sprintf("https://api.paiza.io/runners/get_status?id=%s&api_key=guest",
+			url.QueryEscape(cr.ID))
+		sreq, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
+		if err != nil {
+			return "", err
+		}
+		sresp, err := http.DefaultClient.Do(sreq)
+		if err != nil {
+			return "", err
+		}
+		var sr paizaCreateResponse
+		err = json.NewDecoder(sresp.Body).Decode(&sr)
+		sresp.Body.Close()
+		if err != nil {
+			return "", err
+		}
+		cr.Status = sr.Status
+		if cr.Status != "completed" {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	detailsURL := fmt.Sprintf("https://api.paiza.io/runners/get_details?id=%s&api_key=guest",
+		url.QueryEscape(cr.ID))
+	dreq, err := http.NewRequestWithContext(ctx, http.MethodGet, detailsURL, nil)
+	if err != nil {
+		return "", err
+	}
+	dresp, err := http.DefaultClient.Do(dreq)
+	if err != nil {
+		return "", err
+	}
+	defer dresp.Body.Close()
+
+	var dr paizaDetailsResponse
+	if err := json.NewDecoder(dresp.Body).Decode(&dr); err != nil {
+		return "", err
+	}
+	if dr.Error != "" {
+		return "", fmt.Errorf("paiza: %s", dr.Error)
 	}
 
 	var sb strings.Builder
-	for _, s := range []string{wr.CompilerOutput, wr.CompilerError, wr.ProgramOutput, wr.ProgramError} {
+	for _, s := range []string{dr.BuildStdout, dr.BuildStderr, dr.Stdout, dr.Stderr} {
 		if s == "" {
 			continue
 		}
@@ -224,8 +278,11 @@ func runWandbox(ctx context.Context, compiler, code string) (string, error) {
 			sb.WriteByte('\n')
 		}
 	}
-	if wr.Signal != "" {
-		fmt.Fprintf(&sb, "signal: %s\n", wr.Signal)
+	if dr.BuildResult != "" && dr.BuildResult != "success" {
+		fmt.Fprintf(&sb, "build: %s\n", dr.BuildResult)
+	}
+	if dr.Result != "" && dr.Result != "success" {
+		fmt.Fprintf(&sb, "result: %s\n", dr.Result)
 	}
 	if sb.Len() == 0 {
 		return "(no output)", nil
@@ -314,7 +371,7 @@ func main() {
 			}
 			ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 			defer cancel()
-			out, err := runWandbox(ctx, compiler, runCode)
+			out, err := runPaiza(ctx, compiler, runCode)
 			if err != nil {
 				return c.JSON(http.StatusBadGateway, echo.Map{"error": err.Error()})
 			}
