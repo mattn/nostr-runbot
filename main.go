@@ -396,7 +396,7 @@ func main() {
 
 		reply := nostr.Event{
 			Kind:      ev.Kind,
-			CreatedAt: nostr.Now(),
+			CreatedAt: ev.CreatedAt + 1,
 			Tags:      buildReplyTags(&ev),
 			Content:   output,
 		}
