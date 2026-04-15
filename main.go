@@ -22,7 +22,7 @@ import (
 
 const name = "nostr-runbot"
 
-const version = "0.0.6"
+const version = "0.0.7"
 
 var revision = "HEAD"
 
